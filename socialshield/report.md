@@ -1,6 +1,6 @@
 # Báo Cáo Đồ Án — SocialShield
 
-**Môn**: NT208.Q21.ANTN — Lập trình mạng căn bản
+**Môn**: NT208.Q21.ANTN — Lập trình web
 **Trường**: Trường Đại học Công nghệ Thông tin — ĐHQG-HCM (UIT)
 **Đề tài**: Chrome Extension giám sát bảo mật & quyền riêng tư trên mạng xã hội
 **Phiên bản**: v1.1
@@ -46,7 +46,7 @@ Codebase: ~12,000 dòng JavaScript + HTML/CSS, structure modular MV3, hỗ trợ
 
 ### 2.1 Hiện trạng bảo mật mạng xã hội tại Việt Nam
 
-- **Vấn đề 1 — Lộ PII tự nguyện**: User VN có thói quen để SĐT, email, MSSV, biển số xe, mã ZaloPay/MoMo, địa chỉ chi tiết ngay trong IG/X bio. Một khảo sát của VNCERT 2024 cho thấy >60% IG profile cá nhân ở VN chứa ít nhất 1 PII có thể OSINT.
+- **Vấn đề 1 — Lộ PII tự nguyện**: User VN có thói quen để SĐT, email, MSSV, biển số xe, mã ZaloPay/MoMo, địa chỉ chi tiết ngay trong IG/X bio. Đây là quan sát từ trải nghiệm dùng MXH cá nhân + xem qua một số profile public, không phải số liệu khảo sát chính thức.
 
 - **Vấn đề 2 — EXIF GPS leak**: Ảnh chụp bằng smartphone mặc định lưu GPS coords trong EXIF. User upload trực tiếp lên mạng (Discord, Zalo, Telegram) hoặc messenger groups → lộ vị trí nhà / nơi làm.
 
@@ -608,20 +608,24 @@ So sánh: Hamming distance. Threshold ≤2 identical, ≤10 similar (chặt hơn
 
 ## 9. Đánh giá kết quả
 
-### 9.1 Test scope
+### 9.1 Phạm vi kiểm thử
 
-| Test | Method | Kết quả |
+Đồ án **chưa xây dựng dataset đánh giá chuẩn** cho regex precision/recall. Việc đo benchmark chính xác đòi hỏi labeled dataset hàng trăm bio + ground truth — vượt phạm vi 1 đồ án môn học.
+
+Mức độ verify đã làm:
+
+| Hạng mục | Cách verify | Mức độ tin cậy |
 |---|---|---|
-| Snapshot capture | Manual trên 10 IG account | 100% pass |
-| Privacy regex precision | Synthetic + real-world dataset 50 bio | Precision 94%, recall 87% |
-| URL Safety (GSB) | Curl 20 known-bad URL | 18/20 detect |
-| URL Safety (VT) | Curl 20 known-bad URL | 20/20 detect |
-| EXIF GPS extract | 15 ảnh JPEG có GPS | 15/15 đúng coord |
-| VietQR decode | 10 ảnh VietQR thực tế | 10/10 extract đúng STK |
-| CCCD heuristic | 20 ảnh (10 CCCD, 10 không) | Precision 80%, recall 90% |
-| Footprint enum | 5 username (test public) | 100% match expected |
-| Cross-Profile pHash | 3 cặp same/different person | 3/3 đúng |
-| pHash robustness | Resize/rotate/brightness shift | OK với rotate <5°, crop <10% |
+| Snapshot capture | Chạy manual trên profile cá nhân + một vài profile public | Hoạt động đúng kỳ vọng |
+| Privacy regex | Thử với bio của chính mình + một vài profile public + synthetic test string | Pattern match đúng các case đã thử; false-positive đã fix khi gặp (xem mục 10.2) |
+| URL Safety | Thử với URL ví dụ trong tài liệu GSB/VT + URL clean | Hoạt động đúng phản hồi của API |
+| EXIF GPS | Chụp ảnh smartphone + đọc lại | Tọa độ khớp Google Maps |
+| VietQR decode | Tải app banking → tạo QR test → scan | Đọc đúng bank BIN + STK |
+| CCCD heuristic | Thử với một vài ảnh ID card + ảnh thường | Có false-positive với card hình chữ nhật khác |
+| Footprint enum | Thử với username "torvalds", "gvanrossum" | Endpoint trả đúng status đã document |
+| Cross-Profile pHash | Up cùng ảnh, ảnh edit nhẹ, ảnh khác | Distinguish được trong các case thử |
+
+> Phần này thành thật ghi nhận: kết quả là **manual verification trên test case có giới hạn**, không phải benchmark khoa học. Hướng phát triển cần dataset labeled mới đưa được số chính xác.
 
 ### 9.2 So sánh với target khoảng trống
 
@@ -634,18 +638,21 @@ So sánh: Hamming distance. Threshold ≤2 identical, ≤10 similar (chặt hơn
 | Doxxing perspective | Tool dispatcher only | ✓ Narrative attacker-perspective |
 | Self-hosted alternative AI | Đắt (OpenAI direct) | ✓ Localhost Express proxy |
 
-### 9.3 Performance
+### 9.3 Performance — ước lượng định tính
 
-| Operation | Time |
+Chưa profiling kỹ. Các số dưới đây là **quan sát chủ quan khi dev test trên máy cá nhân** (1 lần chạy, không lấy trung bình nhiều lần):
+
+| Operation | Cảm nhận |
 |---|---|
-| Privacy Scan (cold) | ~3-5s (chủ yếu chờ IG API) |
-| Privacy Scan (warm cache) | ~800ms |
-| pHash compute 1 image | ~80ms |
-| Footprint enum 15 sites parallel | ~6s (chờ slowest) |
-| Heatmap geocode 10 locations | ~11s (1.1s × 10 do rate-limit) |
-| Heatmap geocode (cache hit) | ~50ms |
-| Dashboard SPA initial load | ~400ms |
-| Extension cold install size | ~250KB unpacked |
+| Privacy Scan (cold) | Vài giây, đa phần thời gian chờ IG API |
+| Privacy Scan (warm cache) | Dưới 1 giây |
+| pHash compute 1 image | Gần như tức thì (Canvas 32×32 nhỏ) |
+| Footprint enum 15 sites | Vài giây, phụ thuộc site chậm nhất |
+| Heatmap geocode (chưa cache) | Chậm do Nominatim rate-limit 1.1s/req → 10 location = ~11 giây |
+| Heatmap geocode (đã cache) | Tức thì |
+| Extension size unpacked | ~250KB (đo bằng tổng dir size, không phải zipped) |
+
+Để có số performance chuẩn cần dùng Chrome DevTools Performance + lấy median của 100 run, hiện chưa làm.
 
 ---
 
