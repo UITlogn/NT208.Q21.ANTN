@@ -30,9 +30,11 @@
 
 | Persona | Use case chính | Output mong muốn |
 |---|---|---|
-| **Threat Intel Analyst** | Theo dõi tài khoản brand bị impersonate, monitor footprint username trên 15+ platform, phát hiện cross-platform linkage | Alert tự động + dashboard tổng hợp signals |
-| **Red Team Recon** | OSINT cơ bản: bóc PII từ bio/caption, footprint enum, EXIF GPS, doxxing report attacker-perspective | Báo cáo "attacker biết gì → làm được gì" |
+| **Threat Intel Analyst** *(superset of Red Team — cần đầy đủ recon technique để track attacker)* | Theo dõi brand impersonation, footprint username 15+ platform, cross-platform linkage, **+ recon technique** (PII extract, EXIF, doxxing report ngược lên attacker) | Alert tự động + intel dossier tổng hợp |
+| **Red Team Recon** | OSINT cơ bản trên target hợp đồng pen-test: bóc PII, footprint enum, EXIF GPS, geo heatmap, doxxing report attacker-perspective | Báo cáo "attacker biết gì → làm được gì → est. time" |
 | **End User phổ thông** | Self-audit: liệu bio mình có lộ SĐT/CCCD không, ảnh có EXIF GPS không, settings có private không, mật khẩu có trong breach database không | Risk score 0-100 + actionable recommendation |
+
+> **Lưu ý về persona overlap**: Threat Intel Analyst trong thực tế **bao gồm** toàn bộ skill set của Red Team Recon — vì để phát hiện và phản ứng với 1 vụ impersonation, analyst phải tự làm OSINT lên attacker (ngược chiều). Vì vậy mọi tính năng red team (mục 6.2) đều available cho threat intel persona. Phân chia trong report chỉ để phân định **góc nhìn use case** (defensive vs. offensive), không phải phân định feature gate.
 
 Toàn bộ logic chạy **100% client-side** (trừ optional AI server local). Không server trung gian thu thập data. Tích hợp 6 threat intel API miễn phí: **Google Safe Browsing, VirusTotal, URLhaus, HIBP Pwned Passwords, XposedOrNot, HackCheck**.
 
@@ -291,6 +293,13 @@ socialshield/
 ## 6. Tính năng phân theo persona
 
 ### 6.1 Tính năng cho **Threat Intel Analyst**
+
+> Phân loại này tập hợp tính năng **defensive-first** (theo dõi liên tục, alert tự động, dashboard tổng hợp). Trong thực tế analyst cần kết hợp với toàn bộ tính năng red team ở mục 6.2 để hoàn tất pipeline: **detect → triage → recon ngược → response**. Một workflow điển hình:
+> 1. Footprint Monitor báo có account mới `@vcb_support_v2` trùng pattern brand
+> 2. Cross-Profile pHash Diff confirm profile pic giống `@vietcombank.vn` (Hamming 4/64)
+> 3. → Analyst chuyển sang Red Team mode: scanFullProfile attacker account → bóc bio PII, captions, externalUrl → enumerateFootprint username "vcb_support_v2" trên 15 site
+> 4. → Doxxing Report ngược lên attacker → có khả năng attacker reuse username trên GitHub/Reddit → có thể link tới identity thật
+> 5. → Compile dossier → file abuse report tới IG/X + báo công an mạng
 
 #### 6.1.1 Username Footprint Enumeration (Sherlock-style)
 - 15 site CORS-friendly: GitHub, GitLab, Codeberg, Reddit, HN, dev.to, Docker Hub, npm, Wikipedia, Keybase, Mastodon, Bluesky, Lichess, Chess.com, Codeforces
@@ -693,10 +702,140 @@ So sánh: Hamming distance. Threshold ≤2 identical, ≤10 similar (chặt hơn
 
 - Support thêm **Facebook**, **TikTok**, **Threads** (cần phân tích DOM + API riêng)
 - Cross-language regex patterns (Korean, Japanese, Chinese cho Asian-targeted)
-- Hỗ trợ Firefox + Edge (cần test Manifest V3 compat)
+- Hỗ trợ Firefox (chi tiết ở mục **11.3 Firefox Port**) + Edge (Chromium → drop-in compat)
 - **Encrypted local backup** xuất ra file (mật khẩu user-supplied)
 
-### 11.3 Dài hạn / nghiên cứu
+### 11.3 Firefox Port — Feasibility Analysis
+
+Firefox đã hỗ trợ **Manifest V3** từ Firefox 109 (Jan 2023). Port từ Chrome MV3 sang Firefox MV3 **khả thi** với ~80% code không đổi, nhưng có 6 điểm khác biệt cần xử lý:
+
+#### 11.4.1 Khác biệt API
+
+| Khía cạnh | Chrome MV3 | Firefox MV3 | Solution |
+|---|---|---|---|
+| Namespace API | `chrome.*` (callback hoặc Promise) | `browser.*` (native Promise) | Dùng `webextension-polyfill` (~30KB) — wrap `chrome.*` thành `browser.*` cross-browser |
+| Background context | **Service Worker** (terminate sau idle, không persistent global) | **Event Page** (non-persistent background page, có DOM-like context) | Code hiện tại của ta dùng `importScripts('../lib/storage.js')` — service-worker-only. Firefox event page không support `importScripts` ngoài WW, cần đổi sang `<script>` tag trong background page HTML, hoặc bundle |
+| `chrome.scripting.executeScript` | OK | OK from FF 102+ | Compatible |
+| `chrome.alarms` | OK | OK | Compatible |
+| `chrome.notifications` | OK | OK với một số option khác (vd thiếu `buttons`) | Test feature parity |
+| `chrome.cookies` | OK (cần `cookies` permission) | OK với extra check first-party isolation | Tested-but-different |
+
+#### 11.4.2 Manifest changes
+
+Manifest hiện tại cần thêm `browser_specific_settings.gecko`:
+
+```jsonc
+{
+  "manifest_version": 3,
+  "name": "SocialShield",
+  "version": "1.1.0",
+  // ... existing fields ...
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "socialshield@uit.edu.vn",
+      "strict_min_version": "115.0"
+    }
+  },
+
+  // Background: Firefox không support service_worker key,
+  // dùng scripts array thay thế (event page model)
+  "background": {
+    // Chrome MV3:
+    "service_worker": "background/service-worker.js",
+    // Firefox MV3 fallback (Chrome ignore):
+    "scripts": ["background/service-worker.js"],
+    "type": "module"  // nếu dùng ES modules
+  }
+}
+```
+
+Chrome đọc `service_worker`, Firefox đọc `scripts` — có thể co-exist trong cùng 1 manifest.
+
+#### 11.4.3 importScripts vs script tags
+
+**Vấn đề lớn nhất**: `background/service-worker.js` của ta dòng đầu có:
+
+```js
+try {
+  importScripts('../lib/storage.js');
+} catch (err) {
+  console.error('Failed to importScripts storage.js:', err);
+}
+```
+
+`importScripts` chỉ tồn tại trong **WebWorker context** (service worker). Firefox event page **không phải worker** → throw `ReferenceError`.
+
+**Solution A — Conditional load**:
+```js
+if (typeof importScripts !== 'undefined') {
+  // Chrome service worker path
+  importScripts('../lib/storage.js');
+}
+// Firefox path: rely on background.scripts array trong manifest
+// liệt kê storage.js trước service-worker.js
+```
+
+Sau đó manifest:
+```jsonc
+"background": {
+  "service_worker": "background/service-worker.js",
+  "scripts": ["lib/storage.js", "background/service-worker.js"]
+}
+```
+
+**Solution B — Bundler** (Webpack/esbuild): bundle thành 1 file duy nhất, không dùng importScripts. Recommended cho production.
+
+#### 11.4.4 CSP & content security
+
+Firefox MV3 CSP **strict tương tự Chrome** (`script-src 'self'`). Tất cả workaround ta đã làm (bundle jsQR, không load Tesseract remote) **vẫn áp dụng**. Không cần thay đổi gì.
+
+#### 11.4.5 Build & distribution
+
+| Step | Chrome | Firefox |
+|---|---|---|
+| Dev load | `chrome://extensions` → Load unpacked | `about:debugging#/runtime/this-firefox` → Load Temporary Add-on |
+| Production sign | Optional (Web Store sign) | **Bắt buộc** sign qua AMO (`web-ext sign --api-key=... --api-secret=...`) |
+| Distribution | Chrome Web Store ($5 dev fee) | addons.mozilla.org (free) hoặc self-host signed `.xpi` |
+
+Lưu ý: Firefox temporary add-on **bị bỏ khi đóng trình duyệt** — phải sign để cài permanent. Có thể bypass bằng Firefox Developer Edition / Nightly với `xpinstall.signatures.required = false`.
+
+#### 11.4.6 Specific code paths cần test trên Firefox
+
+| Code path | Lý do cần test |
+|---|---|
+| `chrome.storage.local.get(null)` | Firefox đôi khi return `Promise` thay vì callback — `webextension-polyfill` xử lý |
+| `chrome.cookies.getAll({ url: 'https://www.instagram.com' })` | Firefox first-party isolation có thể return ít cookie hơn |
+| `chrome.runtime.sendMessage` từ content script | Firefox return Promise; callback style của Chrome cũng work nhờ polyfill |
+| `fetch` từ background | Firefox CORS rule cho extension origin chặt hơn Chrome cho một số endpoint |
+| `chrome.notifications.create` với `iconUrl` | Firefox đòi absolute URL (extension URL) thay vì relative |
+| Service worker `self.chrome?.notifications` | Firefox event page dùng `window.browser` (sau polyfill = `browser`) — code check `self.chrome` cần đổi sang `globalThis.browser \|\| globalThis.chrome` |
+
+#### 11.4.7 Effort estimation
+
+| Task | Estimated effort |
+|---|---|
+| Thêm polyfill + cấu hình build | 2–4 giờ |
+| Refactor importScripts → scripts array hoặc bundle | 4–6 giờ |
+| Manifest browser_specific_settings | 30 phút |
+| Test 10 main flow (capture, scan, footprint, heatmap, ...) trên Firefox | 4–8 giờ |
+| Fix Firefox-specific bugs (cookies, notifications, fetch CORS) | 4–12 giờ |
+| Setup AMO signing pipeline | 2–4 giờ |
+| **Total** | **~16–35 giờ** (~ 2-4 working days) |
+
+#### 11.4.8 Tóm tắt khả thi
+
+✅ **Có thể port được** với effort vừa phải.
+✅ Đa số tính năng "just works" sau polyfill + manifest fix.
+⚠️ Cần thay đổi background lifecycle assumption (service worker → event page).
+⚠️ Service worker DevTools workflow khác (Firefox dùng `about:debugging` → Inspect).
+❌ Không port được 1-to-1 nếu code phụ thuộc vào Chrome-only feature (vd `chrome.declarativeNetRequest` — ta KHÔNG dùng, an toàn).
+
+**Recommended next step nếu port**: setup branch `feature/firefox-port`, thêm `webextension-polyfill` + bundler (esbuild), generate 2 manifest variants từ 1 source template, CI build cả 2 artifact (`socialshield-chrome.zip`, `socialshield-firefox.xpi`).
+
+---
+
+### 11.4 Dài hạn / nghiên cứu
 
 - Tự host **OpenSearch threat intel feed** — hợp tác với VNCERT
 - ML-based bio classification (replacement cho rule-based scam patterns)
