@@ -296,3 +296,6 @@ Test Doxxing Risk:
 
 Test các tính năng trong Tools:
 ![alt text](image-7.png)
+
+Test facebook capture:
+![alt text](image-8.png)
