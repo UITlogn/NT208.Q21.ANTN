@@ -1445,6 +1445,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && (
     tab.url?.includes('instagram.com') ||
+    tab.url?.includes('facebook.com') ||
     tab.url?.includes('x.com') ||
     tab.url?.includes('twitter.com')
   )) {

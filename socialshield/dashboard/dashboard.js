@@ -118,10 +118,10 @@
 
       for (const group of groups) {
         if (group.latestSnapshot) {
-          const pLabel = group.platform === 'twitter' ? 'Twitter/X' : 'Instagram';
+          const pLabel = this.platformLabel(group.platform);
           activities.push({
             type: 'snapshot',
-            icon: group.platform === 'twitter' ? '🐦' : '📷',
+            icon: this.platformIcon(group.platform),
             message: `[${pLabel}] Captured ${group.latestSnapshot.count} ${group.type} for @${group.username}`,
             timestamp: group.latestSnapshot.timestamp,
             platform: group.platform
@@ -2146,18 +2146,22 @@
     },
 
     platformLabel(platform) {
-      const map = { instagram: 'Instagram', twitter: 'Twitter/X' };
+      const map = { instagram: 'Instagram', twitter: 'Twitter/X', facebook: 'Facebook' };
       return map[platform] || platform;
     },
 
     platformIcon(platform) {
-      const map = { instagram: '📷', twitter: '🐦' };
+      const map = { instagram: 'IG', twitter: 'X', facebook: 'FB' };
       return map[platform] || '🌐';
     },
 
     profileUrl(username, platform) {
       const u = encodeURIComponent(username);
       if (platform === 'twitter') return `https://x.com/${u}`;
+      if (platform === 'facebook') {
+        if (/^\d+$/.test(username)) return `https://www.facebook.com/profile.php?id=${u}`;
+        return `https://www.facebook.com/${u}`;
+      }
       return `https://www.instagram.com/${u}/`;
     },
 

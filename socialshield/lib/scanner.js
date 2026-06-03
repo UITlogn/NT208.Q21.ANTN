@@ -796,7 +796,7 @@ const SocialShieldScanner = {
     try {
       const parsed = new URL(url);
       const host = parsed.hostname.toLowerCase();
-      if (host === 'l.instagram.com' || host === 'lm.instagram.com') {
+      if (host === 'l.instagram.com' || host === 'lm.instagram.com' || host === 'l.facebook.com') {
         const target = parsed.searchParams.get('u');
         if (target) return decodeURIComponent(target);
       }
@@ -821,6 +821,7 @@ const SocialShieldScanner = {
       if (seen.has(scanHref)) continue;
       // Bỏ qua links nội bộ Instagram và Twitter/X
       if (scanHref.startsWith('https://www.instagram.com/') || scanHref.startsWith('https://instagram.com/')) continue;
+      if (scanHref.startsWith('https://www.facebook.com/') || scanHref.startsWith('https://facebook.com/')) continue;
       if (href.startsWith('https://x.com/') || href.startsWith('https://twitter.com/')) continue;
 
       seen.add(scanHref);

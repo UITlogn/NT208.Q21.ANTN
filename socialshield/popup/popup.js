@@ -55,8 +55,9 @@
       const url = this.currentTab?.url || '';
       const isInstagram = url.includes('instagram.com');
       const isTwitter = url.includes('x.com') || url.includes('twitter.com');
-      const isSupportedPlatform = isInstagram || isTwitter;
-      const platformName = isTwitter ? 'Twitter/X' : 'Instagram';
+      const isFacebook = url.includes('facebook.com');
+      const isSupportedPlatform = isInstagram || isTwitter || isFacebook;
+      const platformName = isFacebook ? 'Facebook' : (isTwitter ? 'Twitter/X' : 'Instagram');
 
       // Privacy + Link scan luôn enable (chạy được trên mọi page có DOM)
       // Capture following/followers chỉ enable trên IG/X
@@ -154,7 +155,7 @@
 
       document.getElementById('btn-link-scan').addEventListener('click', () => {
         const url = this.currentTab?.url || '';
-        const supported = url.includes('instagram.com') || url.includes('x.com') || url.includes('twitter.com');
+        const supported = url.includes('instagram.com') || url.includes('x.com') || url.includes('twitter.com') || url.includes('facebook.com');
         if (supported) this.sendAction('scan-links');
         else this.runGenericLinkScan();
       });
